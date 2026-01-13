@@ -62,34 +62,46 @@ with tab1:
         df['kategoria'] = df['Kategorie'].apply(lambda x: x['nazwa'] if x else "Brak")
         df['Wartość'] = df['liczba'] * df['cena']
         
+        # --- Nagłówek i Eksport ---
         col_m1, col_m2, col_exp = st.columns([2, 2, 1])
         col_m1.metric("Wartość magazynu", f"{df['Wartość'].sum():,.2f} zł")
         col_m2.metric("Liczba produktów", len(df))
         
-        # EKSPORT DO CSV
         csv = df[['id', 'nazwa', 'kategoria', 'liczba', 'cena', 'Wartość']].to_csv(index=False).encode('utf-8-sig')
-        col_exp.download_button(
-            label="📥 Pobierz Raport CSV",
-            data=csv,
-            file_name='raport_magazynowy.csv',
-            mime='text/csv',
-        )
+        col_exp.download_button("📥 Pobierz Raport CSV", csv, 'raport.csv', 'text/csv')
 
         st.subheader("Podgląd magazynu")
         st.dataframe(df[['id', 'nazwa', 'kategoria', 'liczba', 'cena', 'Wartość']], use_container_width=True)
 
         st.divider()
-        st.subheader("Wizualizacja zapasów")
-        c_chart1, c_chart2 = st.columns(2)
-        with c_chart1:
-            st.write("**Suma sztuk w kategoriach**")
-            st.bar_chart(df.groupby('kategoria')['liczba'].sum())
-        with c_chart2:
-            st.write("**Wartość finansowa kategorii (zł)**")
-            st.bar_chart(df.groupby('kategoria')['Wartość'].sum())
+        st.subheader("📈 Analiza szczegółowa kategorii")
+
+        # Wybór kategorii do szczegółowej analizy
+        wybrana_kat = st.selectbox("Wybierz kategorię do podejrzenia szczegółów:", ["Wszystkie"] + list(df['kategoria'].unique()))
+        
+        plot_df = df if wybrana_kat == "Wszystkie" else df[df['kategoria'] == wybrana_kat]
+
+        col_c1, col_c2 = st.columns(2)
+        
+        with col_c1:
+            st.write(f"**Suma sztuk produktów: {wybrana_kat}**")
+            # Wykres słupkowy: Produkt vs Liczba sztuk
+            st.bar_chart(data=plot_df, x="nazwa", y="liczba", color="kategoria")
+        
+        with col_c2:
+            st.write(f"**Wartość finansowa produktów: {wybrana_kat}**")
+            # Wykres słupkowy: Produkt vs Wartość
+            st.bar_chart(data=plot_df, x="nazwa", y="Wartość", color="kategoria")
+
+        st.divider()
+        st.subheader("🚀 Udział produktów w całkowitym magazynie")
+        
+        # Wykres skumulowany pokazujący strukturę ilościową
+        st.write("Struktura ilościowa (podział na produkty wewnątrz kategorii):")
+        st.bar_chart(data=df, x="kategoria", y="liczba", color="nazwa")
+        
     else:
         st.info("Magazyn jest pusty.")
-
 # --- TAB 2: NOWY PRODUKT ---
 with tab2:
     st.subheader("Dodaj nowy asortyment")
