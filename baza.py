@@ -128,6 +128,24 @@ with tab1:
     else:
         st.info("Brak produktów w bazie. Przejdź do zakładki 'Nowy Produkt'.")
 
+# Wstaw to w Tab 1 (Dashboard) pod wykresami
+st.divider()
+st.subheader("💡 Inteligentne Zalecenia")
+
+col_rec1, col_rec2 = st.columns(2)
+
+with col_rec1:
+    # Wyliczamy produkty o najwyższej wartości, które mają niski stan
+    critical_value = df[(df['liczba'] < 10) & (df['cena'] > df['cena'].mean())]
+    if not critical_value.empty:
+        st.error(f"**Priorytet zamówienia:** Masz mało sztuk bardzo drogich produktów: {', '.join(critical_value['nazwa'])}")
+    else:
+        st.success("Wszystkie kluczowe produkty są zabezpieczone.")
+
+with col_rec2:
+    # Analiza struktury
+    most_common_cat = df['kategoria'].value_counts().idxmax()
+    st.info(f"**Dominacja:** Twoim głównym asortymentem jest obecnie **{most_common_cat}**. Rozważ dywersyfikację, aby zmniejszyć ryzyko.")
 # --- TAB 2: NOWY PRODUKT (INTELIGENTNE ID) ---
 with tab2:
     st.subheader("Rejestracja nowego produktu")
