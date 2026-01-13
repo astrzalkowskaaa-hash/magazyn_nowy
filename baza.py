@@ -152,15 +152,44 @@ with tab4:
 
 # --- TAB 5: ADMIN ---
 with tab5:
-    c_a, c_b = st.columns(2)
-    with c_a:
+    st.subheader("🧨 Zarządzanie Krytyczne")
+    col_a, col_b = st.columns(2)
+    
+    with col_a:
+        st.write("🗑️ **Masowe usuwanie produktów**")
         if not df.empty:
-            d_p = st.selectbox("Usuń produkt:", ["---"] + df['nazwa'].tolist())
-            if st.button("Usuń produkt") and d_p != "---":
-                supabase.table("Produkty").delete().eq("nazwa", d_p).execute(); st.rerun()
-    with c_b:
+            # Zmieniono na multiselect dla wygody
+            to_del_list = st.multiselect(
+                "Wybierz produkty do usunięcia (możesz wybrać wiele):", 
+                options=df['nazwa'].tolist()
+            )
+            
+            if to_del_list:
+                st.warning(f"Wybrano do usunięcia: {len(to_del_list)} produktów.")
+                if st.button("🔴 Usuń zaznaczone produkty", type="primary"):
+                    # Usuwanie w pętli lub za pomocą operatora 'in'
+                    try:
+                        # Wykonujemy usunięcie dla wszystkich zaznaczonych nazw
+                        supabase.table("Produkty").delete().in_("nazwa", to_del_list).execute()
+                        st.success(f"Pomyślnie usunięto: {', '.join(to_del_list)}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Wystąpił błąd podczas usuwania: {e}")
+            else:
+                st.info("Wybierz produkty z listy powyżej, aby je usunąć.")
+        else:
+            st.info("Brak produktów do usunięcia.")
+
+    with col_b:
+        st.write("📂 **Usuwanie kategorii**")
         if categories_dict:
-            d_c = st.selectbox("Usuń kategorię:", ["---"] + list(categories_dict.keys()))
-            if st.button("Usuń kategorię") and d_c != "---":
-                try: supabase.table("Kategorie").delete().eq("id", categories_dict[d_c]).execute(); st.rerun()
-                except: st.error("Kategoria ma produkty!")
+            c_del = st.selectbox("Wybierz kategorię do usunięcia:", ["---"] + list(categories_dict.keys()))
+            if c_del != "---":
+                st.error("UWAGA: Usunięcie kategorii zadziała tylko, jeśli jest ona pusta!")
+                if st.button("Usuń kategorię"):
+                    try: 
+                        supabase.table("Kategorie").delete().eq("id", categories_dict[c_del]).execute()
+                        st.success(f"Usunięto kategorię: {c_del}")
+                        st.rerun()
+                    except: 
+                        st.error("Nie można usunąć: kategoria wciąż zawiera przypisane produkty!")
