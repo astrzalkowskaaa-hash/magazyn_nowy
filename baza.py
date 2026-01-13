@@ -61,47 +61,70 @@ with tab1:
     if not df.empty:
         df['kategoria'] = df['Kategorie'].apply(lambda x: x['nazwa'] if x else "Brak")
         df['Wartość'] = df['liczba'] * df['cena']
-        
-        # --- Nagłówek i Eksport ---
-        col_m1, col_m2, col_exp = st.columns([2, 2, 1])
-        col_m1.metric("Wartość magazynu", f"{df['Wartość'].sum():,.2f} zł")
-        col_m2.metric("Liczba produktów", len(df))
-        
-        csv = df[['id', 'nazwa', 'kategoria', 'liczba', 'cena', 'Wartość']].to_csv(index=False).encode('utf-8-sig')
-        col_exp.download_button("📥 Pobierz Raport CSV", csv, 'raport.csv', 'text/csv')
 
-        st.subheader("Podgląd magazynu")
-        st.dataframe(df[['id', 'nazwa', 'kategoria', 'liczba', 'cena', 'Wartość']], use_container_width=True)
+        # 1. KPI CARDS - Wizualne podsumowanie
+        st.markdown("### 📈 Kluczowe wskaźniki")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("💰 Wartość całkowita", f"{df['Wartość'].sum():,.2f} zł")
+        m2.metric("📦 Łączna liczba sztuk", int(df['liczba'].sum()))
+        m3.metric("🏷️ Liczba kategorii", len(categories_dict))
+        # Najdroższy produkt
+        top_prod = df.loc[df['cena'].idxmax()]
+        m4.metric("💎 Najdroższy produkt", f"{top_prod['cena']} zł", help=f"Produkt: {top_prod['nazwa']}")
 
         st.divider()
-        st.subheader("📈 Analiza szczegółowa kategorii")
 
-        # Wybór kategorii do szczegółowej analizy
-        wybrana_kat = st.selectbox("Wybierz kategorię do podejrzenia szczegółów:", ["Wszystkie"] + list(df['kategoria'].unique()))
+        # 2. INTERAKTYWNA TABELA I WYSZUKIWARKA
+        st.markdown("### 🔍 Przegląd i szybka edycja")
+        search_query = st.text_input("Wyszukaj produkt po nazwie...", "").lower()
         
-        plot_df = df if wybrana_kat == "Wszystkie" else df[df['kategoria'] == wybrana_kat]
+        filtered_df = df[df['nazwa'].str.lower().contains(search_query)]
+        
+        # st.data_editor pozwala użytkownikowi edytować dane "w locie"
+        edited_df = st.data_editor(
+            filtered_df[['id', 'nazwa', 'kategoria', 'liczba', 'cena', 'Wartość']],
+            use_container_width=True,
+            column_config={
+                "liczba": st.column_config.NumberColumn("Stan", format="%d 📦"),
+                "cena": st.column_config.NumberColumn("Cena", format="%.2f zł"),
+                "Wartość": st.column_config.ProgressColumn("Udział w wartości", min_value=0, max_value=float(df['Wartość'].max()), format="%.2f zł"),
+            },
+            disabled=["id", "kategoria", "Wartość"], # blokujemy edycję id i wyliczeń
+            hide_index=True
+        )
 
-        col_c1, col_c2 = st.columns(2)
+        # Przycisk zapisu zmian z edytora (opcjonalne ulepszenie)
+        if st.button("💾 Zapisz zmiany z tabeli"):
+            st.info("Tutaj możesz dodać logikę aktualizacji masowej (Bulk Update) w Supabase.")
+
+        st.divider()
+
+        # 3. ZAAWANSOWANA ANALIZA WYKRESÓW
+        st.markdown("### 📊 Analityka Wizualna")
+        
+        col_c1, col_c2 = st.columns([1, 1])
         
         with col_c1:
-            st.write(f"**Suma sztuk produktów: {wybrana_kat}**")
-            # Wykres słupkowy: Produkt vs Liczba sztuk
-            st.bar_chart(data=plot_df, x="nazwa", y="liczba", color="kategoria")
-        
-        with col_c2:
-            st.write(f"**Wartość finansowa produktów: {wybrana_kat}**")
-            # Wykres słupkowy: Produkt vs Wartość
-            st.bar_chart(data=plot_df, x="nazwa", y="Wartość", color="kategoria")
+            st.write("**Podział wartościowy magazynu (Kołowy)**")
+            # Prosty sposób na wykres kołowy w Streamlit
+            st.vega_lite_chart(df, {
+                'mark': {'type': 'arc', 'innerRadius': 50},
+                'encoding': {
+                    'theta': {'field': 'Wartość', 'type': 'quantitative'},
+                    'color': {'field': 'kategoria', 'type': 'nominal'},
+                },
+            }, use_container_width=True)
 
-        st.divider()
-        st.subheader("🚀 Udział produktów w całkowitym magazynie")
-        
-        # Wykres skumulowany pokazujący strukturę ilościową
-        st.write("Struktura ilościowa (podział na produkty wewnątrz kategorii):")
-        st.bar_chart(data=df, x="kategoria", y="liczba", color="nazwa")
-        
+        with col_c2:
+            st.write("**Top 5 najliczniejszych produktów**")
+            top5_qty = df.nlargest(5, 'liczba')
+            st.bar_chart(data=top5_qty, x="nazwa", y="liczba", color="#FF4B4B")
+
+        # Eksport na dole dla czystości interfejsu
+        csv = df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("📂 Eksportuj pełną bazę do Excel (CSV)", csv, 'magazyn_full.csv', 'text/csv')
     else:
-        st.info("Magazyn jest pusty.")
+        st.info("Magazyn jest pusty. Dodaj pierwszy produkt w zakładce obok!")
 # --- TAB 2: NOWY PRODUKT ---
 with tab2:
     st.subheader("Dodaj nowy asortyment")
