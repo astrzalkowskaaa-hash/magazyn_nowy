@@ -1,6 +1,8 @@
 import streamlit as st
 from supabase import create_client, Client
 import pandas as pd
+import segno  # Nowa biblioteka do QR
+from io import BytesIO
 
 # --- KONFIGURACJA POŁĄCZENIA ---
 try:
@@ -8,24 +10,8 @@ try:
     KEY = st.secrets["SUPABASE_KEY"]
     supabase: Client = create_client(URL, KEY)
 except Exception as e:
-    st.error("Błąd konfiguracji Secrets! Sprawdź SUPABASE_URL i SUPABASE_KEY w ustawieniach Streamlit.")
+    st.error("Błąd konfiguracji Secrets!")
     st.stop()
-
-# --- STYLIZACJA CSS (EFEKT WOW) ---
-st.markdown("""
-    <style>
-    .stMetric {
-        background-color: #f8f9fb;
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        border: 1px solid #e1e4e8;
-    }
-    [data-testid="stMetricValue"] {
-        color: #FF4B4B;
-    }
-    </style>
-    """, unsafe_allow_html=True)
 
 # --- FUNKCJE POMOCNICZE ---
 def get_categories():
@@ -40,93 +26,77 @@ def get_products_data():
         return response.data
     except: return []
 
-def generate_category_id():
-    response = supabase.table("Kategorie").select("id").order("id", desc=True).limit(1).execute()
-    if not response.data: return 1
-    return response.data[0]['id'] + 1
-
 def generate_product_id(category_id):
     response = supabase.table("Produkty").select("id").eq("kategoria_id", category_id).execute()
     count_in_cat = len(response.data)
-    # Format: [ID_KATEGORII][KOLEJNY_NUMER]
     return int(f"{category_id}{count_in_cat + 1}")
 
+# --- NOWA FUNKCJA: GENEROWANIE QR ---
+def get_qr_image(data):
+    qrcode = segno.make_qr(str(data))
+    out = BytesIO()
+    qrcode.save(out, kind='png', scale=10)
+    return out.getvalue()
+
 # --- PRZYGOTOWANIE DANYCH ---
-st.set_page_config(page_title="Magazyn Pro v3", layout="wide")
-st.title("📦 System Zarządzania Magazynem")
+st.set_page_config(page_title="Magazyn Pro + QR", layout="wide")
+st.title("📦 System Zarządzania Magazynem z kodami QR")
 
 categories_dict = get_categories()
 products_list = get_products_data()
+df = pd.DataFrame(products_list) if products_list else pd.DataFrame()
 
-if products_list:
-    df = pd.DataFrame(products_list)
+if not df.empty:
     df['kategoria'] = df['Kategorie'].apply(lambda x: x['nazwa'] if isinstance(x, dict) else "Brak")
     df['Wartość'] = df['liczba'] * df['cena']
-else:
-    df = pd.DataFrame(columns=['id', 'nazwa', 'liczba', 'cena', 'kategoria_id', 'kategoria', 'Wartość'])
-
-# --- ALERTY NISKIEGO STANU ---
-LOW_STOCK_THRESHOLD = 5
-if not df.empty:
-    low_stock = df[df['liczba'] <= LOW_STOCK_THRESHOLD]
-    if not low_stock.empty:
-        alert_names = ", ".join([f"{r['nazwa']} ({r['liczba']})" for _, r in low_stock.iterrows()])
-        st.warning(f"⚠️ **NISKI STAN:** {alert_names}")
 
 # --- NAWIGACJA ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📊 Dashboard", "✨ Nowy Produkt", "➕ Dostawa", "📂 Kategorie", "🛠️ Admin"
-])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Dashboard", "✨ Nowy Produkt", "➕ Dostawa", "📂 Kategorie", "🛠️ Admin"])
 
-# --- TAB 1: DASHBOARD (ANALIZA I RAPORTY) ---
+# --- TAB 1: DASHBOARD + GENERATOR QR ---
 with tab1:
     if not df.empty:
-        # Metryki KPI
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("💰 Wartość Magazynu", f"{df['Wartość'].sum():,.2f} zł")
-        m2.metric("📦 Łączna ilość", int(df['liczba'].sum()))
-        m3.metric("🏷️ Kategorie", len(categories_dict))
-        
-        # Analiza Pareto (ABC) - Najcenniejszy produkt
-        top_val_prod = df.loc[df['Wartość'].idxmax()]
-        m4.metric("💎 Top Wartość", f"{top_val_prod['Wartość']:,.2f} zł", help=f"Produkt: {top_val_prod['nazwa']}")
-
-        st.divider()
-
-        # Wyszukiwarka i Tabela
-        c_search, c_exp = st.columns([3, 1])
-        with c_search:
-            search = st.text_input("🔍 Szybkie wyszukiwanie produktu...", "")
-        with c_exp:
-            csv = df.to_csv(index=False).encode('utf-8-sig')
-            st.download_button("📥 Pobierz Raport CSV", csv, "raport_magazyn.csv", "text/csv")
-
-        filtered_df = df[df['nazwa'].str.contains(search, case=False, na=False)]
-        
-        st.dataframe(
-            filtered_df[['id', 'nazwa', 'kategoria', 'liczba', 'cena', 'Wartość']],
-            use_container_width=True,
-            column_config={
-                "id": st.column_config.TextColumn("ID"),
-                "Wartość": st.column_config.ProgressColumn("Udział finansowy", format="%.2f zł", min_value=0, max_value=float(df['Wartość'].max())),
-                "liczba": st.column_config.NumberColumn("Sztuk", format="%d 📦")
-            },
-            hide_index=True
-        )
+        # Metryki na górze
+        m1, m2, m3 = st.columns(3)
+        m1.metric("💰 Wartość", f"{df['Wartość'].sum():,.2f} zł")
+        m2.metric("📦 Sztuk", int(df['liczba'].sum()))
+        m3.metric("📈 Asortyment", len(df))
 
         st.divider()
         
-        # Wizualizacja Wow
-        st.subheader("📈 Analityka wizualna")
-        g1, g2 = st.columns(2)
-        with g1:
-            st.write("**Struktura ilościowa kategorii**")
-            st.bar_chart(data=df, x="kategoria", y="liczba", color="nazwa")
-        with g2:
-            st.write("**Rozkład wartości (Cena vs Ilość)**")
-            st.scatter_chart(data=df, x="cena", y="liczba", color="kategoria", size="Wartość")
+        # Sekcja QR KODÓW
+        st.subheader("🖼️ Generator etykiet QR")
+        qr_col1, qr_col2 = st.columns([1, 2])
+        
+        with qr_col1:
+            prod_to_qr = st.selectbox("Wybierz produkt do etykiety:", df['nazwa'].tolist())
+            selected_id = df[df['nazwa'] == prod_to_qr]['id'].values[0]
+            
+            # Generowanie obrazu QR
+            qr_img = get_qr_image(f"PROD_ID: {selected_id}")
+            st.image(qr_img, caption=f"Kod QR dla: {prod_to_qr}", width=200)
+            
+            st.download_button(
+                label="📥 Pobierz kod QR do druku",
+                data=qr_img,
+                file_name=f"QR_{prod_to_qr}.png",
+                mime="image/png"
+            )
+            
+        with qr_col2:
+            st.info("""
+            **Jak używać kodów QR?**
+            1. Wybierz produkt z listy po lewej.
+            2. Pobierz obrazek i wydrukuj go.
+            3. Naklej na regał lub opakowanie. 
+            4. Skanując kod telefonem, szybko zidentyfikujesz ID w systemie.
+            """)
+        
+        st.divider()
+        st.subheader("📋 Pełna lista")
+        st.dataframe(df[['id', 'nazwa', 'kategoria', 'liczba', 'cena', 'Wartość']], use_container_width=True)
     else:
-        st.info("Brak produktów w bazie. Przejdź do zakładki 'Nowy Produkt'.")
+        st.info("Dodaj produkty, aby zobaczyć dashboard.")
 
 # Wstaw to w Tab 1 (Dashboard) pod wykresami
 st.divider()
