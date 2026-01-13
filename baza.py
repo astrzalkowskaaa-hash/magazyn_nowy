@@ -11,6 +11,22 @@ except Exception as e:
     st.error("Błąd konfiguracji Secrets! Sprawdź SUPABASE_URL i SUPABASE_KEY w ustawieniach Streamlit.")
     st.stop()
 
+# --- STYLIZACJA CSS (EFEKT WOW) ---
+st.markdown("""
+    <style>
+    .stMetric {
+        background-color: #f8f9fb;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        border: 1px solid #e1e4e8;
+    }
+    [data-testid="stMetricValue"] {
+        color: #FF4B4B;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 # --- FUNKCJE POMOCNICZE ---
 def get_categories():
     try:
@@ -32,10 +48,11 @@ def generate_category_id():
 def generate_product_id(category_id):
     response = supabase.table("Produkty").select("id").eq("kategoria_id", category_id).execute()
     count_in_cat = len(response.data)
+    # Format: [ID_KATEGORII][KOLEJNY_NUMER]
     return int(f"{category_id}{count_in_cat + 1}")
 
 # --- PRZYGOTOWANIE DANYCH ---
-st.set_page_config(page_title="Magazyn Pro 3.0", layout="wide")
+st.set_page_config(page_title="Magazyn Pro v3", layout="wide")
 st.title("📦 System Zarządzania Magazynem")
 
 categories_dict = get_categories()
@@ -48,117 +65,143 @@ if products_list:
 else:
     df = pd.DataFrame(columns=['id', 'nazwa', 'liczba', 'cena', 'kategoria_id', 'kategoria', 'Wartość'])
 
-# --- ALERTY ---
+# --- ALERTY NISKIEGO STANU ---
 LOW_STOCK_THRESHOLD = 5
 if not df.empty:
     low_stock = df[df['liczba'] <= LOW_STOCK_THRESHOLD]
     if not low_stock.empty:
-        alert_text = ", ".join([f"{row['nazwa']} ({row['liczba']} szt.)" for _, row in low_stock.iterrows()])
-        st.warning(f"⚠️ **PRODUKTY NA WYCZERPANIU:** {alert_text}")
+        alert_names = ", ".join([f"{r['nazwa']} ({r['liczba']})" for _, r in low_stock.iterrows()])
+        st.warning(f"⚠️ **NISKI STAN:** {alert_names}")
 
 # --- NAWIGACJA ---
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 Dashboard", "✨ Nowy Produkt", "➕ Dostawa", "📂 Kategorie", "🛠️ Admin"
 ])
 
-# --- TAB 1: DASHBOARD ---
+# --- TAB 1: DASHBOARD (ANALIZA I RAPORTY) ---
 with tab1:
     if not df.empty:
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("💰 Wartość Magazynu", f"{df['Wartość'].sum():,.2f} zł")
-        c2.metric("📦 Łączna ilość", int(df['liczba'].sum()))
-        c3.metric("🏷️ Kategorie", len(categories_dict))
-        c4.metric("📈 Asortyment", len(df))
+        # Metryki KPI
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("💰 Wartość Magazynu", f"{df['Wartość'].sum():,.2f} zł")
+        m2.metric("📦 Łączna ilość", int(df['liczba'].sum()))
+        m3.metric("🏷️ Kategorie", len(categories_dict))
+        
+        # Analiza Pareto (ABC) - Najcenniejszy produkt
+        top_val_prod = df.loc[df['Wartość'].idxmax()]
+        m4.metric("💎 Top Wartość", f"{top_val_prod['Wartość']:,.2f} zł", help=f"Produkt: {top_val_prod['nazwa']}")
+
         st.divider()
-        col_search, col_export = st.columns([3, 1])
-        with col_search:
-            search = st.text_input("🔍 Szukaj produktu...", "")
-        with col_export:
+
+        # Wyszukiwarka i Tabela
+        c_search, c_exp = st.columns([3, 1])
+        with c_search:
+            search = st.text_input("🔍 Szybkie wyszukiwanie produktu...", "")
+        with c_exp:
             csv = df.to_csv(index=False).encode('utf-8-sig')
-            st.download_button("📥 Pobierz CSV", csv, "magazyn.csv", "text/csv")
+            st.download_button("📥 Pobierz Raport CSV", csv, "raport_magazyn.csv", "text/csv")
+
         filtered_df = df[df['nazwa'].str.contains(search, case=False, na=False)]
+        
         st.dataframe(
             filtered_df[['id', 'nazwa', 'kategoria', 'liczba', 'cena', 'Wartość']],
             use_container_width=True,
             column_config={
-                "Wartość": st.column_config.ProgressColumn("Udział finansowy", format="%.2f zł", min_value=0, max_value=float(df['Wartość'].max() if not df.empty else 100)),
+                "id": st.column_config.TextColumn("ID"),
+                "Wartość": st.column_config.ProgressColumn("Udział finansowy", format="%.2f zł", min_value=0, max_value=float(df['Wartość'].max())),
                 "liczba": st.column_config.NumberColumn("Sztuk", format="%d 📦")
             },
             hide_index=True
         )
+
         st.divider()
-        st.subheader("📊 Analiza Graficzna")
+        
+        # Wizualizacja Wow
+        st.subheader("📈 Analityka wizualna")
         g1, g2 = st.columns(2)
         with g1:
-            st.write("**Ilość produktów w kategoriach**")
+            st.write("**Struktura ilościowa kategorii**")
             st.bar_chart(data=df, x="kategoria", y="liczba", color="nazwa")
         with g2:
-            st.write("**Wartość produktów w kategoriach (zł)**")
-            st.bar_chart(data=df, x="kategoria", y="Wartość", color="nazwa")
+            st.write("**Rozkład wartości (Cena vs Ilość)**")
+            st.scatter_chart(data=df, x="cena", y="liczba", color="kategoria", size="Wartość")
     else:
-        st.info("Magazyn jest pusty.")
+        st.info("Brak produktów w bazie. Przejdź do zakładki 'Nowy Produkt'.")
 
-# --- TAB 2: NOWY PRODUKT ---
+# --- TAB 2: NOWY PRODUKT (INTELIGENTNE ID) ---
 with tab2:
-    st.subheader("Dodaj nowy typ towaru")
+    st.subheader("Rejestracja nowego produktu")
     if not categories_dict:
-        st.error("Brak kategorii! Dodaj je najpierw.")
+        st.error("Baza kategorii jest pusta!")
     else:
-        with st.form("new_p"):
-            name = st.text_input("Nazwa produktu:")
-            qty = st.number_input("Ilość:", min_value=0, step=1)
-            price = st.number_input("Cena:", min_value=0.0, step=0.01)
-            cat_name = st.selectbox("Kategoria:", list(categories_dict.keys()))
-            if st.form_submit_button("Zapisz"):
-                cid = categories_dict[cat_name]
-                if not df.empty and ((df['nazwa'].str.lower() == name.lower()) & (df['kategoria_id'] == cid)).any():
-                    st.error("Produkt już istnieje!")
-                elif name:
+        with st.form("form_new_p", clear_on_submit=True):
+            n_name = st.text_input("Nazwa produktu:")
+            n_qty = st.number_input("Ilość początkowa:", min_value=0, step=1)
+            n_price = st.number_input("Cena jednostkowa (zł):", min_value=0.0, step=0.01)
+            n_cat = st.selectbox("Wybierz kategorię:", list(categories_dict.keys()))
+            
+            if st.form_submit_button("Dodaj produkt"):
+                cid = categories_dict[n_cat]
+                # Sprawdzenie duplikatu
+                is_dup = False
+                if not df.empty:
+                    is_dup = ((df['nazwa'].str.lower() == n_name.lower()) & (df['kategoria_id'] == cid)).any()
+                
+                if is_dup:
+                    st.error(f"Produkt '{n_name}' już istnieje w tej kategorii!")
+                elif n_name:
                     pid = generate_product_id(cid)
-                    supabase.table("Produkty").insert({"id":pid, "nazwa":name, "liczba":qty, "cena":price, "kategoria_id":cid}).execute()
-                    st.success("Dodano!")
+                    supabase.table("Produkty").insert({
+                        "id": pid, "nazwa": n_name, "liczba": n_qty, "cena": n_price, "kategoria_id": cid
+                    }).execute()
+                    st.success(f"Dodano produkt: {n_name} (ID: {pid})")
                     st.rerun()
 
-# --- TAB 3: DOSTAWA ---
+# --- TAB 3: DOSTAWA (AKTUALIZACJA) ---
 with tab3:
-    st.subheader("Dostawa towaru")
+    st.subheader("Przyjęcie towaru")
     if not df.empty:
-        p_choice = st.selectbox("Wybierz produkt:", df['nazwa'].tolist())
-        sel_row = df[df['nazwa'] == p_choice].iloc[0]
-        with st.form("add_q"):
-            add_val = st.number_input("Sztuk do dodania:", min_value=1)
-            if st.form_submit_button("Aktualizuj"):
-                new_q = int(sel_row['liczba'] + add_val)
-                supabase.table("Produkty").update({"liczba": new_q}).eq("id", int(sel_row['id'])).execute()
+        prod_sel = st.selectbox("Wybierz produkt z magazynu:", df['nazwa'].tolist())
+        row = df[df['nazwa'] == prod_sel].iloc[0]
+        with st.form("form_add_q"):
+            st.info(f"Obecny stan: {row['liczba']} szt. | Cena: {row['cena']} zł")
+            add_val = st.number_input("Ilość do dodania:", min_value=1, step=1)
+            if st.form_submit_button("Zatwierdź dostawę"):
+                new_q = int(row['liczba'] + add_val)
+                supabase.table("Produkty").update({"liczba": new_q}).eq("id", int(row['id'])).execute()
+                st.success("Stan zaktualizowany!")
                 st.rerun()
 
-# --- TAB 4: KATEGORIE ---
+# --- TAB 4: KATEGORIE (AUTO ID) ---
 with tab4:
-    st.subheader("Nowa kategoria")
-    with st.form("new_c"):
-        c_name = st.text_input("Nazwa:")
-        if st.form_submit_button("Dodaj kategorię"):
+    st.subheader("Zarządzanie kategoriami")
+    with st.form("form_new_c"):
+        c_name = st.text_input("Nowa nazwa kategorii (np. Elektronika):")
+        if st.form_submit_button("Utwórz kategorię"):
             if c_name:
                 new_cid = generate_category_id()
                 supabase.table("Kategorie").insert({"id": new_cid, "nazwa": c_name}).execute()
+                st.success(f"Dodano kategorię {c_name} z ID: {new_cid}")
                 st.rerun()
 
-# --- TAB 5: ADMIN ---
+# --- TAB 5: ADMIN (USUWANIE) ---
 with tab5:
-    st.subheader("Usuwanie")
-    col_a, col_b = st.columns(2)
-    with col_a:
+    st.subheader("🧨 Panel Administratora")
+    ca, cb = st.columns(2)
+    with ca:
+        st.write("**Usuń produkt**")
         if not df.empty:
-            to_del = st.selectbox("Usuń produkt:", ["---"] + df['nazwa'].tolist())
-            if st.button("Potwierdź usunięcie produktu") and to_del != "---":
-                supabase.table("Produkty").delete().eq("nazwa", to_del).execute()
+            p_del = st.selectbox("Wybierz produkt do usunięcia:", ["---"] + df['nazwa'].tolist())
+            if st.button("Usuń trwale") and p_del != "---":
+                supabase.table("Produkty").delete().eq("nazwa", p_del).execute()
                 st.rerun()
-    with col_b:
+    with cb:
+        st.write("**Usuń kategorię**")
         if categories_dict:
-            c_del = st.selectbox("Usuń kategorię:", ["---"] + list(categories_dict.keys()))
-            if st.button("Potwierdź usunięcie kategorii") and c_del != "---":
+            c_del = st.selectbox("Wybierz kategorię do usunięcia:", ["---"] + list(categories_dict.keys()))
+            if st.button("Usuń kategorię") and c_del != "---":
                 try:
                     supabase.table("Kategorie").delete().eq("id", categories_dict[c_del]).execute()
                     st.rerun()
                 except:
-                    st.error("Błąd: Kategoria nie jest pusta!")
+                    st.error("Nie można usunąć kategorii (usuń najpierw produkty z tej kategorii)!")
